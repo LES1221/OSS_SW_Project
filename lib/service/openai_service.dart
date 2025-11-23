@@ -86,3 +86,73 @@ class OpenAIService {
       throw Exception('Failed to add message: ${response.body}');
     }
   }
+
+  // 3. Run 생성
+  Future<String> _createRun(String threadId) async {
+    final response = await http.post(
+      Uri.parse("$_baseUri/threads/$threadId/runs"),
+      headers: _headers,
+      body: json.encode({'assistant_id': _assistantId}),
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return data['id'];
+    } else {
+      throw Exception('Failed to create run: ${response.body}');
+    }
+  }
+
+  // 4. Run 상태 확인 (Polling)
+  Future<String> _waitForRunCompletion(String threadId, String runId) async {
+    while (true) {
+      final response = await http.get(
+        Uri.parse("$_baseUri/threads/$threadId/runs/$runId"),
+        headers: _headers,
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final status = data['status'];
+
+        if (status == 'completed') {
+          return 'completed';
+        } else if (status == 'failed' ||
+            status == 'cancelled' ||
+            status == 'expired') {
+          throw Exception('Run failed with status: $status');
+        }
+
+        // 0.5초 대기 후 다시 확인
+        await Future.delayed(Duration(milliseconds: 500));
+      } else {
+        throw Exception('Failed to check run status: ${response.body}');
+      }
+    }
+  }
+
+  // 5. Messages 조회
+  Future<String> _getLatestAssistantMessage(String threadId) async {
+    final response = await http.get(
+      Uri.parse('$_baseUri/threads/$threadId/messages?limit=1&order=desc'),
+      headers: _headers,
+    );
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      final messages = data['data'] as List;
+
+      if (messages.isNotEmpty) {
+        final message = messages[0];
+        if (message['role'] == 'assistant') {
+          final content = message['content'] as List;
+          if (content.isNotEmpty && content[0]['type'] == 'text') {
+            return content[0]['text']['value'];
+          }
+        }
+      }
+      throw Exception('No assistant message found');
+    } else {
+      throw Exception('Failed to get messages: ${response.body}');
+    }
+  }
