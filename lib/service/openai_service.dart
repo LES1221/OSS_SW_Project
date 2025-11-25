@@ -156,3 +156,44 @@ class OpenAIService {
       throw Exception('Failed to get messages: ${response.body}');
     }
   }
+  // Thread의 모든 메시지 가져오기
+  Future<List<Map<String, dynamic>>> getThreadMessages() async {
+    try {
+      final threadId = await _getStoredThreadId();
+      if (threadId == null) {
+        return [];
+      }
+
+      final response = await http.get(
+        Uri.parse('$_baseUri/threads/$threadId/messages?order=asc'),
+        headers: _headers,
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final messages = data['data'] as List;
+
+        // 메시지를 파싱하여 반환
+        return messages.map<Map<String, dynamic>>((msg) {
+          final role = msg['role'] as String;
+          final content = msg['content'] as List;
+          String text = '';
+
+          if (content.isNotEmpty && content[0]['type'] == 'text') {
+            text = content[0]['text']['value'];
+          }
+
+          return {
+            'text': text,
+            'isUser': role == 'user',
+            'timestamp': msg['created_at'],
+          };
+        }).toList();
+      } else {
+        throw Exception('Failed to get thread messages: ${response.body}');
+      }
+    } catch (e) {
+      print('Error loading thread messages: $e');
+      return [];
+    }
+  }
