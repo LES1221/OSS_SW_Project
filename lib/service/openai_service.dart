@@ -197,3 +197,115 @@ class OpenAIService {
       return [];
     }
   }
+
+  // 메인 함수: 메시지 전송 및 응답 받기 (Streaming)
+  Stream<String> sendMessageStream(String userMessage) async* {
+    try {
+      // Thread ID 가져오기
+      final threadId = await _getStoredThreadId();
+      if (threadId == null) {
+        throw Exception('Thread ID not found. Please restart the app.');
+      }
+
+      // 1. Message 추가
+      await _addMessage(threadId, userMessage);
+
+      // 2. Run 생성 with streaming
+      final request = http.Request(
+        'POST',
+        Uri.parse('$_baseUri/threads/$threadId/runs'),
+      );
+      request.headers.addAll(_headers);
+      request.headers['Accept'] = 'text/event-stream';
+      request.body = json.encode({
+        'assistant_id': _assistantId,
+        'stream': true,
+      });
+
+      final client = http.Client();
+      final response = await client.send(request);
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to create streaming run: ${response.statusCode}');
+      }
+
+      // 3. SSE 스트림 파싱
+      String buffer = '';
+      await for (var chunk in response.stream.transform(utf8.decoder)) {
+        buffer += chunk;
+
+        // 줄바꿈으로 이벤트 분리
+        final lines = buffer.split('\n');
+        buffer = lines.last; // 마지막 불완전한 줄은 버퍼에 유지
+
+        for (int i = 0; i < lines.length - 1; i++) {
+          final line = lines[i].trim();
+
+          if (line.startsWith('data: ')) {
+            final data = line.substring(6);
+
+            // [DONE] 체크
+            if (data == '[DONE]') {
+              client.close();
+              return;
+            }
+
+            try {
+              final jsonData = json.decode(data);
+
+              // thread.message.delta 이벤트에서 텍스트 추출
+              if (jsonData['object'] == 'thread.message.delta') {
+                final delta = jsonData['delta'];
+                if (delta != null && delta['content'] != null) {
+                  final contents = delta['content'] as List;
+                  for (var content in contents) {
+                    if (content['type'] == 'text' && content['text'] != null) {
+                      final textDelta = content['text']['value'];
+                      if (textDelta != null && textDelta.isNotEmpty) {
+                        yield textDelta;
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              // JSON 파싱 에러는 무시 (메타데이터 등)
+              continue;
+            }
+          }
+        }
+      }
+
+      client.close();
+    } catch (e) {
+      throw Exception('Failed to send message: $e');
+    }
+  }
+
+  // 기존 메서드 유지 (비-스트리밍)
+  Future<String> sendMessage(String userMessage) async {
+    try {
+      // Thread ID 가져오기
+      final threadId = await _getStoredThreadId();
+      if (threadId == null) {
+        throw Exception('Thread ID not found. Please restart the app.');
+      }
+
+      // 1. Message 추가
+      await _addMessage(threadId, userMessage);
+
+      // 2. Run 생성
+      final runId = await _createRun(threadId);
+
+      // 3. Run 완료 대기
+      await _waitForRunCompletion(threadId, runId);
+
+      // 4. AI 응답 가져오기
+      final response = await _getLatestAssistantMessage(threadId);
+
+      return response;
+    } catch (e) {
+      throw Exception('Failed to send message: $e');
+    }
+  }
+}
