@@ -110,3 +110,150 @@ class IntroPage extends StatelessWidget {
   }
 }
 
+// =========================================================
+// [OSS 활용 2] Dash Chat 2 (메인 채팅 화면) - 디자인 Upgraded
+// =========================================================
+class ChatPage extends StatefulWidget {
+  const ChatPage({super.key});
+
+  @override
+  State<ChatPage> createState() => _ChatPageState();
+}
+
+class _ChatPageState extends State<ChatPage> {
+  final ChatService chatService = ChatService();
+
+  ChatUser user = ChatUser(id: '1', firstName: '나');
+
+  // 봇 프로필 (이미지가 없으면 이니셜이나 색상으로 대체됨)
+  ChatUser ibkBot = ChatUser(
+    id: '2',
+    firstName: 'IBK AI',
+    profileImage: "https://cdn-icons-png.flaticon.com/512/4712/4712035.png", // 로봇 아이콘 (인터넷 연결 필요)
+  );
+
+  List<ChatMessage> uiMessages = [];
+  bool isLoading = false;
+
+  Future<void> onSend(ChatMessage message) async {
+    setState(() {
+      uiMessages.insert(0, message);
+      isLoading = true;
+    });
+
+    chatService.addUserMessage(message.text);
+
+    try {
+      String streamedText = "";
+      ChatMessage aiMessage = ChatMessage(
+        user: ibkBot,
+        text: "",
+        createdAt: DateTime.now(),
+      );
+
+      setState(() {
+        uiMessages.insert(0, aiMessage);
+      });
+
+      await for (var textChunk in chatService.sendMessageToAIStream(message.text)) {
+        if (!mounted) return;
+        streamedText += textChunk;
+        setState(() {
+          uiMessages[0] = ChatMessage(
+            user: ibkBot,
+            text: streamedText,
+            createdAt: DateTime.now(),
+          );
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        uiMessages.insert(0, ChatMessage(
+          user: ibkBot,
+          text: "죄송합니다. 오류가 발생했습니다.\n($e)",
+          createdAt: DateTime.now(),
+        ));
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF2F4F6), // 1. 배경색: 토스 같은 연한 회색
+      appBar: AppBar(
+        title: const Row(
+          mainAxisSize: MainAxisSize.min, // 중앙 정렬 유지
+          children: [
+            Icon(Icons.smart_toy_outlined, color: Colors.white), // 앱바 아이콘 추가
+            SizedBox(width: 8),
+            Text("IBK 뱅크봇", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        backgroundColor: const Color(0xFF134F9C), // IBK 파란색
+        centerTitle: true,
+        elevation: 0, // 그림자 없애서 깔끔하게
+      ),
+      body: DashChat(
+        currentUser: user,
+        messages: uiMessages,
+        onSend: onSend,
+        readOnly: isLoading,
+
+        // 2. 말풍선 디자인 꾸미기 (핵심!)
+        messageOptions: MessageOptions(
+          // [나]의 말풍선 스타일
+          currentUserContainerColor: const Color(0xFF134F9C), // IBK 파란색
+          currentUserTextColor: Colors.white,
+
+          // [AI]의 말풍선 스타일
+          containerColor: Colors.white,
+          textColor: Colors.black87,
+
+          // 말풍선 모양 및 기타 설정
+          borderRadius: 16.0,
+          showTime: true, // 시간 표시
+          timeFontSize: 11,
+          showOtherUsersAvatar: true, // 봇 프사 표시
+          showCurrentUserAvatar: false, // 내 프사는 숨김 (깔끔하게)
+        ),
+
+        // 3. 입력창 디자인 꾸미기
+        inputOptions: InputOptions(
+          inputDecoration: InputDecoration(
+            hintText: "금융 업무를 도와드릴까요?",
+            hintStyle: TextStyle(color: Colors.grey[400]),
+            filled: true,
+            fillColor: Colors.white,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(25),
+              borderSide: BorderSide.none, // 테두리 없음
+            ),
+            // 입력창 그림자 효과 (조금 더 입체적으로)
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(25),
+              borderSide: const BorderSide(color: Colors.transparent),
+            ),
+          ),
+          alwaysShowSend: true,
+          sendButtonBuilder: (onSend) {
+            return IconButton(
+              icon: const Icon(Icons.send_rounded),
+              onPressed: onSend,
+              color: const Color(0xFF134F9C), // 전송 버튼도 파란색
+              iconSize: 28,
+            );
+          },
+        ),
+      ),
+    );
+  }
+}

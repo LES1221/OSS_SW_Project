@@ -50,4 +50,31 @@ class ChatService {
     );
     messages.add(message);
   }
+
+  // AI에게 메시지 전송 및 스트리밍 응답 받기
+  Stream<String> sendMessageToAIStream(String userMessage) {
+    try {
+      return _openAIService.sendMessageStream(userMessage);
+    } catch (e) {
+      throw Exception('AI 응답 실패: $e');
+    }
+  }
+
+  // 기존 메서드 유지 (비-스트리밍)
+  Future<String> sendMessageToAI(String userMessage) async {
+    try {
+      final response = await _openAIService.sendMessage(userMessage);
+      return response;
+    } catch (e) {
+      throw Exception('AI 응답 실패: $e');
+    }
+  }
+
+  // 모든 메시지 가져오기
+  List<ChatMessage> getMessages() {
+    return messages;
+  }
+
+  // 메시지 개수
+  int get messageCount => messages.length;
 }
